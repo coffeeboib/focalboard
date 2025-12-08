@@ -47,6 +47,65 @@ Create an `.env` file in the focalboard directory that contains:
 EXCLUDE_ENTERPRISE="1"
 ```
 
+#### Database Configuration
+
+Focalboard supports multiple database backends: SQLite3 (default), PostgreSQL, and MySQL. You can configure the database using either `config.json` or environment variables.
+
+**Using Environment Variables** (Recommended for Docker/Production):
+
+All configuration options can be set via environment variables prefixed with `FOCALBOARD_`. For example:
+
+```bash
+# PostgreSQL (e.g., Supabase)
+export FOCALBOARD_DBTYPE=postgres
+export FOCALBOARD_DBCONFIG="postgresql://user:password@host:port/database"
+
+# SQLite (default)
+export FOCALBOARD_DBTYPE=sqlite3
+export FOCALBOARD_DBCONFIG="./focalboard.db"
+```
+
+**Example: Supabase Setup**
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and set your Supabase credentials:
+   ```bash
+   FOCALBOARD_DBTYPE=postgres
+   FOCALBOARD_DBCONFIG=postgresql://your-user:your-password@your-host.supabase.com:5432/postgres
+   ```
+
+3. Load the environment variables and run:
+   ```bash
+   source .env  # or `set -a; . .env; set +a` for POSIX shells
+   ./bin/focalboard-server
+   ```
+
+**Docker Deployment**:
+
+Use the provided `docker-compose.yml`:
+
+```bash
+# Create .env file with your Supabase credentials
+cp .env.example .env
+
+# Edit .env with your database connection details
+# Then start with docker-compose
+docker-compose up -d
+```
+
+Or run with docker directly:
+
+```bash
+docker run -it -p 8000:8000 \
+  -e FOCALBOARD_DBTYPE=postgres \
+  -e FOCALBOARD_DBCONFIG="postgresql://user:password@host:port/database" \
+  mattermost/focalboard
+```
+
 To build the server:
 
 ```
@@ -60,7 +119,7 @@ To run the server:
  ./bin/focalboard-server
 ```
 
-Then navigate your browser to [`http://localhost:8000`](http://localhost:8000) to access your Focalboard server. The port is configured in `config.json`.
+Then navigate your browser to [`http://localhost:8000`](http://localhost:8000) to access your Focalboard server. The port is configured in `config.json` or via `FOCALBOARD_PORT` environment variable.
 
 Once the server is running, you can rebuild just the web app via `make webapp` in a separate terminal window. Reload your browser to see the changes.
 
