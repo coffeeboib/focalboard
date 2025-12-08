@@ -1,6 +1,9 @@
 ### Webapp build
 FROM node:18-alpine as nodebuild
 
+# Install build dependencies for npm packages
+RUN apk add --no-cache python3 make g++ autoconf automake libtool nasm
+
 WORKDIR /webapp
 ADD webapp/ /webapp
 
