@@ -33,6 +33,7 @@ import (
 	"github.com/mattermost/focalboard/server/ws"
 	"github.com/oklog/run"
 
+	"github.com/lib/pq"
 	"github.com/mattermost/mattermost-server/v6/shared/filestore"
 	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
@@ -209,6 +210,49 @@ func New(params Params) (*Server, error) {
 }
 
 func NewStore(config *config.Configuration, isSingleUser bool, logger mlog.LoggerIFace) (store.Store, error) {
+	// For PostgreSQL, register a custom dialer that forces IPv4 to avoid IPv6 network unreachable errors
+	if config.DBType == "postgres" {
+		connector, err := pq.NewConnector(config.DBConfigString)
+		if err != nil {
+			logger.Error("failed to create postgres connector", mlog.Err(err))
+			return nil, err
+		}
+		
+		// Wrap with IPv4-only dialer
+		connector.Dialer = &net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			// Force IPv4 only - this prevents "network unreachable" on IPv6-incompatible networks
+			FallbackDelay: -1, // Disable IPv6 fallback
+		}
+		
+		sqlDB := sql.OpenDB(connector)
+		
+		err = sqlDB.Ping()
+		if err != nil {
+			logger.Error(`Database Ping failed`, mlog.Err(err))
+			return nil, err
+		}
+		
+		storeParams := sqlstore.Params{
+			DBType:           config.DBType,
+			ConnectionString: config.DBConfigString,
+			TablePrefix:      config.DBTablePrefix,
+			Logger:           logger,
+			DB:               sqlDB,
+			IsPlugin:         false,
+			IsSingleUser:     isSingleUser,
+		}
+
+		var db store.Store
+		db, err = sqlstore.New(storeParams)
+		if err != nil {
+			return nil, err
+		}
+		return db, nil
+	}
+	
+	// For non-postgres databases (sqlite, mysql), use standard connection
 	sqlDB, err := sql.Open(config.DBType, config.DBConfigString)
 	if err != nil {
 		logger.Error("connectDatabase failed", mlog.Err(err))
