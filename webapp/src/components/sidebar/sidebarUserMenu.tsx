@@ -13,6 +13,7 @@ import Menu from '../../widgets/menu'
 import MenuWrapper from '../../widgets/menuWrapper'
 import {getMe, setMe} from '../../store/users'
 import {useAppSelector, useAppDispatch} from '../../store/hooks'
+import {Utils} from '../../utils'
 
 import ModalWrapper from '../modalWrapper'
 
@@ -31,6 +32,9 @@ const SidebarUserMenu = () => {
     const user = useAppSelector<IUser|null>(getMe)
     const intl = useIntl()
 
+    if (Utils.isFocalboardPlugin()) {
+        return <></>
+    }
     return (
         <div className='SidebarUserMenu'>
             <ModalWrapper>

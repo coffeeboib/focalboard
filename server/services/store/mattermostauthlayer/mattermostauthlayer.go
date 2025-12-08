@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	mmModel "github.com/mattermost/mattermost/server/public/model"
+	mmModel "github.com/mattermost/mattermost-server/v6/model"
 
 	sq "github.com/Masterminds/squirrel"
 
@@ -16,7 +16,7 @@ import (
 	"github.com/mattermost/focalboard/server/services/store"
 	"github.com/mattermost/focalboard/server/utils"
 
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 var boardsBotID string
@@ -34,6 +34,7 @@ type servicesAPI interface {
 	GetUserByUsername(username string) (*mmModel.User, error)
 	GetLicense() *mmModel.License
 	GetFileInfo(fileID string) (*mmModel.FileInfo, error)
+	GetCloudLimits() (*mmModel.ProductLimits, error)
 	EnsureBot(bot *mmModel.Bot) (string, error)
 	CreatePost(post *mmModel.Post) (*mmModel.Post, error)
 	GetTeamMember(teamID string, userID string) (*mmModel.TeamMember, error)
@@ -586,7 +587,7 @@ func (s *MattermostAuthLayer) SaveFileInfo(fileInfo *mmModel.FileInfo) error {
 		s.logger.Error(
 			"failed to save fileinfo",
 			mlog.String("file_name", fileInfo.Name),
-			mlog.Int("size", fileInfo.Size),
+			mlog.Int64("size", fileInfo.Size),
 			mlog.Err(err),
 		)
 		return err
@@ -950,6 +951,10 @@ func (s *MattermostAuthLayer) boardsFromRows(rows *sql.Rows, removeDuplicates bo
 	}
 
 	return boards, nil
+}
+
+func (s *MattermostAuthLayer) GetCloudLimits() (*mmModel.ProductLimits, error) {
+	return s.servicesAPI.GetCloudLimits()
 }
 
 func (s *MattermostAuthLayer) implicitBoardMembershipsFromRows(rows *sql.Rows) ([]*model.BoardMember, error) {

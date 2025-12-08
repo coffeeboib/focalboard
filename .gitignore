@@ -46,7 +46,6 @@ build/Release
 node_modules
 dist
 pack
-package
 bin
 debug
 __debug_bin
@@ -70,7 +69,10 @@ webapp/cypress/screenshots
 webapp/cypress/videos
 server/swagger/clients
 server/vendor
+mattermost-plugin/vendor
+mattermost-plugin/dist
 .idea
 docker/certs
 docker/data
 server/**/*.coverage
+mattermost-plugin/**/*.coverage

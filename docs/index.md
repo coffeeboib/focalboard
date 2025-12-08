@@ -1,20 +1,12 @@
-# Focalboard Plugin Documentation
+# Focalboard / Mattermost Boards Contributors Guide
 
-Welcome to the Focalboard plugin project! We're very glad you want to check it out and perhaps contribute code to this project in GitHub.
+Welcome to the [Focalboard](https://www.focalboard.com) / [Mattermost Boards](https://mattermost.com/boards/?utm_source=focalboard) project!
 
-## Install the plugin
+We're very glad you want to check it out and perhaps contribute code our repository in GitHub.
 
-Visit the [Mattermost Developer Documentation](https://developers.mattermost.com/integrate/plugins/using-and-managing-plugins/#custom-plugins) for details on how to install and enable the Focalboard plugin in your self-hosted Mattermost instance.
+Our goal is to make your experience as great as possible. Follow these simple steps to contribute:
 
-## Enable the plugin
-
-Once you've installed the Focalboard plugin, you can enable the plugin in the Mattermost System Console by going to **Plugins > Plugin Management**, and selecting the **Enable** option for the Focalboard plugin.
-
-## Contribute to the Focalboard plugin project
-
-Follow these simple steps to contribute:
-
-1. [Fork the Focalboard repo](https://github.com/mattermost/focalboard), clone it locally, and follow the steps in the README to build. Read the [Focalboard Developer's Guide](focalboard-dev-guide.md) and the [developer tips & tricks](dev-tips.md) documentation to get started.
+1. [Fork the Focalboard repo](https://github.com/mattermost/focalboard), clone it locally, and follow the steps in the README to build. Read the [developer tips & tricks](dev-tips.md) to get started.
 
 2. Find [help wanted tickets that are up for grabs in GitHub](https://github.com/mattermost/focalboard/issues?q=is%3Aopen+is%3Aissue+label%3A%22Up+for+grabs%22). Comment to let everyone know you’re working on it, and to allow a core contributor to assign the issue to you. If there’s no ticket for what you want to work on see [contributions without a ticket](contributions-without-ticket.md).
 

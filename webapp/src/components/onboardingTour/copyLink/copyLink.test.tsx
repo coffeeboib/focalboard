@@ -33,7 +33,9 @@ describe('components/onboardingTour/addComments/CopyLinkTourStep', () => {
             current: 'board_id_1',
         },
         clientConfig: {
-            value: {},
+            value: {
+                featureFlags: {},
+            },
         },
     }
     let store = mockStore(state)

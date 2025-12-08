@@ -11,7 +11,7 @@ import (
 	"github.com/mattermost/focalboard/server/services/notify"
 	"github.com/mattermost/focalboard/server/utils"
 
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 var (
@@ -185,13 +185,8 @@ func (a *App) DuplicateBoard(boardID, userID, toTeam string, asTemplate bool) (*
 	}
 
 	// copy any file attachments from the duplicated blocks.
-	err = a.CopyAndUpdateCardFiles(boardID, userID, bab.Blocks, asTemplate)
-	if err != nil {
-		dbab := model.NewDeleteBoardsAndBlocksFromBabs(bab)
-		if dErr := a.store.DeleteBoardsAndBlocks(dbab, userID); dErr != nil {
-			a.logger.Error("Cannot delete board after duplication error when updating block's file info", mlog.String("boardID", bab.Boards[0].ID), mlog.Err(dErr))
-		}
-		return nil, nil, fmt.Errorf("could not patch file IDs while duplicating board %s: %w", boardID, err)
+	if err = a.CopyCardFiles(boardID, bab.Blocks); err != nil {
+		a.logger.Error("Could not copy files while duplicating board", mlog.String("BoardID", boardID), mlog.Err(err))
 	}
 
 	if !asTemplate {
@@ -199,6 +194,44 @@ func (a *App) DuplicateBoard(boardID, userID, toTeam string, asTemplate bool) (*
 			if categoryErr := a.setBoardCategoryFromSource(boardID, board.ID, userID, toTeam, asTemplate); categoryErr != nil {
 				return nil, nil, categoryErr
 			}
+		}
+	}
+
+	// bab.Blocks now has updated file ids for any blocks containing files.  We need to store them.
+	blockIDs := make([]string, 0)
+	blockPatches := make([]model.BlockPatch, 0)
+
+	for _, block := range bab.Blocks {
+		fieldName := ""
+		if block.Type == model.TypeImage {
+			fieldName = "fileId"
+		} else if block.Type == model.TypeAttachment {
+			fieldName = "attachmentId"
+		}
+		if fieldName != "" {
+			if fieldID, ok := block.Fields[fieldName]; ok {
+				blockIDs = append(blockIDs, block.ID)
+				blockPatches = append(blockPatches, model.BlockPatch{
+					UpdatedFields: map[string]interface{}{
+						fieldName: fieldID,
+					},
+				})
+			}
+		}
+	}
+	a.logger.Debug("Duplicate boards patching file IDs", mlog.Int("count", len(blockIDs)))
+
+	if len(blockIDs) != 0 {
+		patches := &model.BlockPatchBatch{
+			BlockIDs:     blockIDs,
+			BlockPatches: blockPatches,
+		}
+		if err = a.store.PatchBlocks(patches, userID); err != nil {
+			dbab := model.NewDeleteBoardsAndBlocksFromBabs(bab)
+			if err = a.store.DeleteBoardsAndBlocks(dbab, userID); err != nil {
+				a.logger.Error("Cannot delete board after duplication error when updating block's file info", mlog.String("boardID", bab.Boards[0].ID), mlog.Err(err))
+			}
+			return nil, nil, fmt.Errorf("could not patch file IDs while duplicating board %s: %w", boardID, err)
 		}
 	}
 
@@ -218,6 +251,17 @@ func (a *App) DuplicateBoard(boardID, userID, toTeam string, asTemplate bool) (*
 		}
 		return nil
 	})
+
+	if len(bab.Blocks) != 0 {
+		go func() {
+			if uErr := a.UpdateCardLimitTimestamp(); uErr != nil {
+				a.logger.Error(
+					"UpdateCardLimitTimestamp failed after duplicating a board",
+					mlog.Err(uErr),
+				)
+			}
+		}()
+	}
 
 	return bab, members, err
 }
@@ -458,6 +502,15 @@ func (a *App) DeleteBoard(boardID, userID string) error {
 		return nil
 	})
 
+	go func() {
+		if err := a.UpdateCardLimitTimestamp(); err != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed after deleting a board",
+				mlog.Err(err),
+			)
+		}
+	}()
+
 	return nil
 }
 
@@ -694,6 +747,15 @@ func (a *App) UndeleteBoard(boardID string, modifiedBy string) error {
 		a.wsAdapter.BroadcastBoardChange(board.TeamID, board)
 		return nil
 	})
+
+	go func() {
+		if err := a.UpdateCardLimitTimestamp(); err != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed after undeleting a board",
+				mlog.Err(err),
+			)
+		}
+	}()
 
 	return nil
 }

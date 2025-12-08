@@ -127,8 +127,6 @@ class WSClient {
     onUnfollowBlock: FollowChangeHandler = () => {}
     private notificationDelay = 100
     private reopenDelay = 3000
-    private reopenRetryCount = 0
-    private reopenMaxRetries = 10
     private updatedData: UpdatedData = {Blocks: [], Categories: [], BoardCategories: [], Boards: [], BoardMembers: [], CategoryOrder: []}
     private updateTimeout?: NodeJS.Timeout
     private errorPollId?: NodeJS.Timeout
@@ -402,7 +400,6 @@ class WSClient {
         ws.onopen = () => {
             Utils.log('WSClient webSocket opened.')
             this.state = 'open'
-            this.reopenRetryCount = 0
 
             // if has a token defined when connecting, authenticate
             if (this.token) {
@@ -429,25 +426,19 @@ class WSClient {
             Utils.log(`WSClient websocket onclose, code: ${e.code}, reason: ${e.reason}`)
             if (ws === this.ws) {
                 // Unexpected close, re-open
-                Utils.logError('Unexpected WSClient close')
+                Utils.logError('Unexpected close, re-opening websocket')
                 for (const handler of this.onStateChange) {
                     handler(this, 'close')
                 }
                 this.state = 'close'
-
-                if (this.reopenRetryCount < this.reopenMaxRetries) {
-                    setTimeout(() => {
-                        this.reopenRetryCount++
-                        Utils.log(`Reopening websocket connection, count: ${this.reopenRetryCount}`)
-
-                        this.open()
-                        for (const handler of this.onReconnect) {
-                            handler(this)
-                        }
-                    }, this.reopenDelay)
-                } else {
-                    Utils.logError('Reached max websocket re-opening attempts')
-                }
+                setTimeout(() => {
+                    // ToDo: assert that this actually runs the onopen
+                    // contents (auth + this.subscribe())
+                    this.open()
+                    for (const handler of this.onReconnect) {
+                        handler(this)
+                    }
+                }, this.reopenDelay)
             }
         }
 

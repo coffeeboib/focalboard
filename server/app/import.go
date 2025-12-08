@@ -16,7 +16,7 @@ import (
 	"github.com/mattermost/focalboard/server/model"
 	"github.com/mattermost/focalboard/server/utils"
 
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 const (
@@ -43,19 +43,27 @@ func (a *App) ImportArchive(r io.Reader, opt model.ImportArchiveOptions) error {
 		a.logger.Debug("importing legacy archive")
 		_, errImport := a.ImportBoardJSONL(br, opt)
 
+		go func() {
+			if err := a.UpdateCardLimitTimestamp(); err != nil {
+				a.logger.Error(
+					"UpdateCardLimitTimestamp failed after importing a legacy file",
+					mlog.Err(err),
+				)
+			}
+		}()
+
 		return errImport
 	}
 
+	a.logger.Debug("importing archive")
 	zr := zipstream.NewReader(br)
 
-	boardMap := make(map[string]*model.Board) // maps old board ids to new
-	fileMap := make(map[string]string)        // maps old fileIds to new
+	boardMap := make(map[string]string) // maps old board ids to new
 
 	for {
 		hdr, err := zr.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				a.fixImagesAttachments(boardMap, fileMap, opt.TeamID, opt.ModifiedBy)
 				a.logger.Debug("import archive - done", mlog.Int("boards_imported", len(boardMap)))
 				return nil
 			}
@@ -75,14 +83,14 @@ func (a *App) ImportArchive(r io.Reader, opt model.ImportArchiveOptions) error {
 				return model.NewErrUnsupportedArchiveVersion(ver, archiveVersion)
 			}
 		case "board.jsonl":
-			board, err := a.ImportBoardJSONL(zr, opt)
+			boardID, err := a.ImportBoardJSONL(zr, opt)
 			if err != nil {
 				return fmt.Errorf("cannot import board %s: %w", dir, err)
 			}
-			boardMap[dir] = board
+			boardMap[dir] = boardID
 		default:
 			// import file/image;  dir is the old board id
-			board, ok := boardMap[dir]
+			boardID, ok := boardMap[dir]
 			if !ok {
 				a.logger.Warn("skipping orphan image in archive",
 					mlog.String("dir", dir),
@@ -90,65 +98,33 @@ func (a *App) ImportArchive(r io.Reader, opt model.ImportArchiveOptions) error {
 				)
 				continue
 			}
-			newFileName, err := a.SaveFile(zr, opt.TeamID, board.ID, filename, board.IsTemplate)
+			// save file with original filename so it matches name in image block.
+			filePath := filepath.Join(opt.TeamID, boardID, filename)
+			_, err := a.filesBackend.WriteFile(zr, filePath)
 			if err != nil {
 				return fmt.Errorf("cannot import file %s for board %s: %w", filename, dir, err)
 			}
-			fileMap[filename] = newFileName
-
-			a.logger.Debug("import archive file",
-				mlog.String("TeamID", opt.TeamID),
-				mlog.String("boardID", board.ID),
-				mlog.String("filename", filename),
-				mlog.String("newFileName", newFileName),
-			)
-		}
-	}
-}
-
-// Update image and attachment blocks.
-func (a *App) fixImagesAttachments(boardMap map[string]*model.Board, fileMap map[string]string, teamID string, userID string) {
-	blockIDs := make([]string, 0)
-	blockPatches := make([]model.BlockPatch, 0)
-	for _, board := range boardMap {
-		if board.IsTemplate {
-			continue
 		}
 
-		opts := model.QueryBlocksOptions{
-			BoardID: board.ID,
-		}
-		newBlocks, err := a.store.GetBlocks(opts)
-		if err != nil {
-			a.logger.Info("cannot retrieve imported blocks for board", mlog.String("BoardID", board.ID), mlog.Err(err))
-			return
-		}
+		a.logger.Trace("import archive file",
+			mlog.String("dir", dir),
+			mlog.String("filename", filename),
+		)
 
-		for _, block := range newBlocks {
-			if block.Type == "image" || block.Type == "attachment" {
-				fieldName := "fileId"
-				oldID := block.Fields[fieldName]
-				blockIDs = append(blockIDs, block.ID)
-
-				blockPatches = append(blockPatches, model.BlockPatch{
-					UpdatedFields: map[string]interface{}{
-						fieldName: fileMap[oldID.(string)],
-					},
-				})
+		go func() {
+			if err := a.UpdateCardLimitTimestamp(); err != nil {
+				a.logger.Error(
+					"UpdateCardLimitTimestamp failed after importing an archive",
+					mlog.Err(err),
+				)
 			}
-		}
-
-		blockPatchBatch := model.BlockPatchBatch{BlockIDs: blockIDs, BlockPatches: blockPatches}
-		err = a.PatchBlocks(teamID, &blockPatchBatch, userID)
-		if err != nil {
-			a.logger.Info("Error patching blocks for image import", mlog.Err(err))
-		}
+		}()
 	}
 }
 
 // ImportBoardJSONL imports a JSONL file containing blocks for one board. The resulting
 // board id is returned.
-func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*model.Board, error) {
+func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (string, error) {
 	// TODO: Stream this once `model.GenerateBlockIDs` can take a stream of blocks.
 	//       We don't want to load the whole file in memory, even though it's a single board.
 	boardsAndBlocks := &model.BoardsAndBlocks{
@@ -170,7 +146,7 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 	firstLine := true
 	for scanner.Scan() {
 		if lineReader.N <= 0 {
-			return nil, fmt.Errorf("error parsing archive line %d: %w", lineNum, errSizeLimitExceeded)
+			return "", fmt.Errorf("error parsing archive line %d: %w", lineNum, errSizeLimitExceeded)
 		}
 
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -186,7 +162,7 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 			if !skip {
 				var archiveLine model.ArchiveLine
 				if err := json.Unmarshal(line, &archiveLine); err != nil {
-					return nil, fmt.Errorf("error parsing archive line %d: %w", lineNum, err)
+					return "", fmt.Errorf("error parsing archive line %d: %w", lineNum, err)
 				}
 
 				// first line must be a board
@@ -198,7 +174,7 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 				case "board":
 					var board model.Board
 					if err2 := json.Unmarshal(archiveLine.Data, &board); err2 != nil {
-						return nil, fmt.Errorf("invalid board in archive line %d: %w", lineNum, err2)
+						return "", fmt.Errorf("invalid board in archive line %d: %w", lineNum, err2)
 					}
 					board.ModifiedBy = userID
 					board.UpdateAt = now
@@ -209,20 +185,20 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 					// legacy archives encoded boards as blocks; we need to convert them to real boards.
 					var block *model.Block
 					if err2 := json.Unmarshal(archiveLine.Data, &block); err2 != nil {
-						return nil, fmt.Errorf("invalid board block in archive line %d: %w", lineNum, err2)
+						return "", fmt.Errorf("invalid board block in archive line %d: %w", lineNum, err2)
 					}
 					block.ModifiedBy = userID
 					block.UpdateAt = now
 					board, err := a.blockToBoard(block, opt)
 					if err != nil {
-						return nil, fmt.Errorf("cannot convert archive line %d to block: %w", lineNum, err)
+						return "", fmt.Errorf("cannot convert archive line %d to block: %w", lineNum, err)
 					}
 					boardsAndBlocks.Boards = append(boardsAndBlocks.Boards, board)
 					boardID = board.ID
 				case "block":
 					var block *model.Block
 					if err2 := json.Unmarshal(archiveLine.Data, &block); err2 != nil {
-						return nil, fmt.Errorf("invalid block in archive line %d: %w", lineNum, err2)
+						return "", fmt.Errorf("invalid block in archive line %d: %w", lineNum, err2)
 					}
 					block.ModifiedBy = userID
 					block.UpdateAt = now
@@ -231,11 +207,11 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 				case "boardMember":
 					var boardMember *model.BoardMember
 					if err2 := json.Unmarshal(archiveLine.Data, &boardMember); err2 != nil {
-						return nil, fmt.Errorf("invalid board Member in archive line %d: %w", lineNum, err2)
+						return "", fmt.Errorf("invalid board Member in archive line %d: %w", lineNum, err2)
 					}
 					boardMembers = append(boardMembers, boardMember)
 				default:
-					return nil, model.NewErrUnsupportedArchiveLineType(lineNum, archiveLine.Type)
+					return "", model.NewErrUnsupportedArchiveLineType(lineNum, archiveLine.Type)
 				}
 				firstLine = false
 			}
@@ -243,7 +219,7 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 	}
 
 	if errRead := scanner.Err(); errRead != nil {
-		return nil, fmt.Errorf("error reading archive line %d: %w", lineNum, errRead)
+		return "", fmt.Errorf("error reading archive line %d: %w", lineNum, errRead)
 	}
 
 	// loop to remove the people how are not part of the team and system
@@ -258,12 +234,12 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 	var err error
 	boardsAndBlocks, err = model.GenerateBoardsAndBlocksIDs(boardsAndBlocks, a.logger)
 	if err != nil {
-		return nil, fmt.Errorf("error generating archive block IDs: %w", err)
+		return "", fmt.Errorf("error generating archive block IDs: %w", err)
 	}
 
 	boardsAndBlocks, err = a.CreateBoardsAndBlocks(boardsAndBlocks, opt.ModifiedBy, false)
 	if err != nil {
-		return nil, fmt.Errorf("error inserting archive blocks: %w", err)
+		return "", fmt.Errorf("error inserting archive blocks: %w", err)
 	}
 
 	// add users to all the new boards (if not the fake system user).
@@ -275,7 +251,7 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 			SchemeAdmin: true,
 		}
 		if _, err2 := a.AddMemberToBoard(adminMember); err2 != nil {
-			return nil, fmt.Errorf("cannot add adminMember to board: %w", err2)
+			return "", fmt.Errorf("cannot add adminMember to board: %w", err2)
 		}
 		for _, boardMember := range boardMembers {
 			bm := &model.BoardMember{
@@ -290,16 +266,16 @@ func (a *App) ImportBoardJSONL(r io.Reader, opt model.ImportArchiveOptions) (*mo
 				Synthetic:       boardMember.Synthetic,
 			}
 			if _, err2 := a.AddMemberToBoard(bm); err2 != nil {
-				return nil, fmt.Errorf("cannot add member to board: %w", err2)
+				return "", fmt.Errorf("cannot add member to board: %w", err2)
 			}
 		}
 	}
 
 	// find new board id
 	for _, board := range boardsAndBlocks.Boards {
-		return board, nil
+		return board.ID, nil
 	}
-	return nil, fmt.Errorf("missing board in archive: %w", model.ErrInvalidBoardBlock)
+	return "", fmt.Errorf("missing board in archive: %w", model.ErrInvalidBoardBlock)
 }
 
 // fixBoardsandBlocks allows the caller of `ImportArchive` to modify or filters boards and blocks being

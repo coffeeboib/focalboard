@@ -39,7 +39,7 @@ describe('component/content/FileBlock', () => {
         type: 'attachment',
         title: 'test-title',
         fields: {
-            fileId: 'test.txt',
+            attachmentId: 'test.txt',
         },
         createdBy: 'test-user-id',
         createAt: 0,

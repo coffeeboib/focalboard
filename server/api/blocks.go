@@ -11,7 +11,7 @@ import (
 	"github.com/mattermost/focalboard/server/model"
 	"github.com/mattermost/focalboard/server/services/audit"
 
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 func (a *API) registerBlocksRoutes(r *mux.Router) {
@@ -159,6 +159,13 @@ func (a *API) handleGetBlocks(w http.ResponseWriter, r *http.Request) {
 		mlog.Int("block_count", len(blocks)),
 	)
 
+	var bErr error
+	blocks, bErr = a.app.ApplyCloudLimits(blocks)
+	if bErr != nil {
+		a.errorResponse(w, r, err)
+		return
+	}
+
 	json, err := json.Marshal(blocks)
 	if err != nil {
 		a.errorResponse(w, r, err)
@@ -296,7 +303,7 @@ func (a *API) handlePostBlocks(w http.ResponseWriter, r *http.Request) {
 	// this query param exists when creating template from board, or board from template
 	sourceBoardID := r.URL.Query().Get("sourceBoardID")
 	if sourceBoardID != "" {
-		if updateFileIDsErr := a.app.CopyAndUpdateCardFiles(sourceBoardID, userID, blocks, false); updateFileIDsErr != nil {
+		if updateFileIDsErr := a.app.CopyCardFiles(sourceBoardID, blocks); updateFileIDsErr != nil {
 			a.errorResponse(w, r, updateFileIDsErr)
 			return
 		}

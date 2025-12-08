@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	mmModel "github.com/mattermost/mattermost/server/public/model"
+	mmModel "github.com/mattermost/mattermost-server/v6/model"
 
-	pluginapi "github.com/mattermost/mattermost/server/public/pluginapi"
+	pluginapi "github.com/mattermost/mattermost-plugin-api"
 )
 
 var (

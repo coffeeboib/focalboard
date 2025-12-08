@@ -3375,7 +3375,7 @@ func TestPermissionsGetFile(t *testing.T) {
 		clients := setupClients(th)
 		testData := setupData(t, th)
 
-		newFileID, err := th.Server.App().SaveFile(bytes.NewBuffer([]byte("test")), "test-team", testData.privateBoard.ID, "test.png", false)
+		newFileID, err := th.Server.App().SaveFile(bytes.NewBuffer([]byte("test")), "test-team", testData.privateBoard.ID, "test.png")
 		require.NoError(t, err)
 
 		ttCases := ttCasesF()
@@ -3390,7 +3390,7 @@ func TestPermissionsGetFile(t *testing.T) {
 		clients := setupLocalClients(th)
 		testData := setupData(t, th)
 
-		newFileID, err := th.Server.App().SaveFile(bytes.NewBuffer([]byte("test")), "test-team", testData.privateBoard.ID, "test.png", false)
+		newFileID, err := th.Server.App().SaveFile(bytes.NewBuffer([]byte("test")), "test-team", testData.privateBoard.ID, "test.png")
 		require.NoError(t, err)
 
 		ttCases := ttCasesF()

@@ -70,7 +70,9 @@ describe('components/cardDetail/CommentsList', () => {
                 current: 'card_id_1',
             },
             clientConfig: {
-                value: {},
+                value: {
+                    featureFlags: {},
+                },
             },
             teams: {
                 current: {id: 'team_id_1'},

@@ -115,6 +115,7 @@
   "CenterPanel.Login": "Логин",
   "CenterPanel.Share": "Поделиться",
   "ChannelIntro.CreateBoard": "Создать доску",
+  "CloudMessage.cloud-server": "Получите свой бесплатный облачный сервер.",
   "ColorOption.selectColor": "Выберите цвет {color}",
   "Comment.delete": "Удалить",
   "CommentsList.send": "Отправить",

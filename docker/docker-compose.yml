@@ -12,6 +12,10 @@ services:
     environment:
       - VIRTUAL_HOST=focalboard.local
       - VIRTUAL_PORT=8000
+      # Supabase Database Configuration
+      # Set these variables or create a .env file
+      - FOCALBOARD_DBTYPE=${FOCALBOARD_DBTYPE:-postgres}
+      - FOCALBOARD_DBCONFIG=${FOCALBOARD_DBCONFIG}
 
 volumes:
   fbdata:

@@ -13,9 +13,9 @@ env:
 
 jobs:
   down-migrations:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@v3
         with:
           path: "focalboard"
       - name: assert that down migrations are SELECT 1 scripts
@@ -26,16 +26,31 @@ jobs:
 
   golangci:
     name: plugin
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+      - uses: actions/setup-go@v3
         with:
-          go-version: 1.21
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+          go-version: 1.19.5
+      - uses: actions/checkout@v3
         with:
           path: "focalboard"
+      - id: "mattermostServer"
+        uses: actions/checkout@v3
+        continue-on-error: true
+        with:
+          repository: "mattermost/mattermost"
+          fetch-depth: "20"
+          path: "mattermost"
+          ref: ${{ env.BRANCH_NAME }}
+      - uses: actions/checkout@v3
+        if: steps.mattermostServer.outcome == 'failure'
+        with:
+          repository: "mattermost/mattermost"
+          fetch-depth: "20"
+          path: "mattermost"
+          ref : "b61c096497ac1f22f64b77afe58d0dd5a72b38f1"
       - name: set up golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.0
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.50.1
       - name: lint
         run: |
           cd focalboard

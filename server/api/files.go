@@ -20,9 +20,9 @@ import (
 
 	"github.com/mattermost/focalboard/server/services/audit"
 
-	mmModel "github.com/mattermost/mattermost/server/public/model"
+	mmModel "github.com/mattermost/mattermost-server/v6/model"
 
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 var UnsafeContentTypes = [...]string{
@@ -393,7 +393,7 @@ func (a *API) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	auditRec.AddMeta("teamID", board.TeamID)
 	auditRec.AddMeta("filename", handle.Filename)
 
-	fileID, err := a.app.SaveFile(file, board.TeamID, boardID, handle.Filename, board.IsTemplate)
+	fileID, err := a.app.SaveFile(file, board.TeamID, boardID, handle.Filename)
 	if err != nil {
 		a.errorResponse(w, r, err)
 		return

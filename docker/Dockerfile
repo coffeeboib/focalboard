@@ -1,8 +1,5 @@
 ### Webapp build
-FROM node:18-alpine as nodebuild
-
-# Install build dependencies for npm packages
-RUN apk add --no-cache python3 make g++ autoconf automake libtool nasm
+FROM node:16.3.0@sha256:ca6daf1543242acb0ca59ff425509eab7defb9452f6ae07c156893db06c7a9a4 as nodebuild
 
 WORKDIR /webapp
 ADD webapp/ /webapp
@@ -13,10 +10,7 @@ RUN CPPFLAGS="-DPNG_ARM_NEON_OPT=0" npm install --no-optional && \
     npm run pack
 
 ### Go build
-FROM golang:1.21.8-alpine AS gobuild
-
-# Install build dependencies
-RUN apk add --no-cache git make build-base
+FROM golang:1.18.3@sha256:b203dc573d81da7b3176264bfa447bd7c10c9347689be40540381838d75eebef AS gobuild
 
 WORKDIR /go/src/focalboard
 ADD . /go/src/focalboard

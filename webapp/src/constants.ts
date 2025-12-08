@@ -37,8 +37,8 @@ class Constants {
     static readonly titleColumnId = '__title'
     static readonly badgesColumnId = '__badges'
 
-    static readonly versionString = '8.0.0'
-    static readonly versionDisplayString = 'June 2024'
+    static readonly versionString = '7.10.6'
+    static readonly versionDisplayString = 'Apr 2023'
 
     static readonly archiveHelpPage = 'https://docs.mattermost.com/boards/migrate-to-boards.html'
     static readonly imports = [
@@ -111,12 +111,12 @@ class Constants {
             displayName: 'Pусский',
         },
         {
-            code: 'zh-tw',
-            name: 'traditional-chinese',
+            code: 'zh-cn',
+            name: 'chinese',
             displayName: '中文 (繁體)',
         },
         {
-            code: 'zh-cn',
+            code: 'zh-tw',
             name: 'simplified-chinese',
             displayName: '中文 (简体)',
         },
@@ -198,6 +198,8 @@ class Constants {
 
     static readonly globalTeamId = '0'
     static readonly noChannelID = '0'
+
+    static readonly myInsights = 'MY'
 
     static readonly SystemUserID = 'system'
 }

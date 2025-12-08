@@ -3,11 +3,14 @@ package app
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/mattermost/focalboard/server/model"
 	"github.com/mattermost/focalboard/server/services/notify"
+	"github.com/mattermost/focalboard/server/utils"
 
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 var ErrBlocksFromMultipleBoards = errors.New("the block set contain blocks from multiple boards")
@@ -42,17 +45,21 @@ func (a *App) DuplicateBlock(boardID string, blockID string, userID string, asTe
 		return nil, err
 	}
 
-	err = a.CopyAndUpdateCardFiles(boardID, userID, blocks, asTemplate)
-	if err != nil {
-		return nil, err
-	}
-
 	a.blockChangeNotifier.Enqueue(func() error {
 		for _, block := range blocks {
 			a.wsAdapter.BroadcastBlockChange(board.TeamID, block)
 		}
 		return nil
 	})
+
+	go func() {
+		if uErr := a.UpdateCardLimitTimestamp(); uErr != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed duplicating a block",
+				mlog.Err(uErr),
+			)
+		}
+	}()
 
 	return blocks, err
 }
@@ -65,6 +72,16 @@ func (a *App) PatchBlockAndNotify(blockID string, blockPatch *model.BlockPatch, 
 	oldBlock, err := a.store.GetBlock(blockID)
 	if err != nil {
 		return nil, err
+	}
+
+	if a.IsCloudLimited() {
+		containsLimitedBlocks, lErr := a.ContainsLimitedBlocks([]*model.Block{oldBlock})
+		if lErr != nil {
+			return nil, lErr
+		}
+		if containsLimitedBlocks {
+			return nil, model.ErrPatchUpdatesLimitedCards
+		}
 	}
 
 	board, err := a.store.GetBoard(oldBlock.BoardID)
@@ -106,6 +123,16 @@ func (a *App) PatchBlocksAndNotify(teamID string, blockPatches *model.BlockPatch
 	oldBlocks, err := a.store.GetBlocksByIDs(blockPatches.BlockIDs)
 	if err != nil {
 		return err
+	}
+
+	if a.IsCloudLimited() {
+		containsLimitedBlocks, err := a.ContainsLimitedBlocks(oldBlocks)
+		if err != nil {
+			return err
+		}
+		if containsLimitedBlocks {
+			return model.ErrPatchUpdatesLimitedCards
+		}
 	}
 
 	if err := a.store.PatchBlocks(blockPatches, modifiedByID); err != nil {
@@ -153,7 +180,45 @@ func (a *App) InsertBlockAndNotify(block *model.Block, modifiedByID string, disa
 		})
 	}
 
+	go func() {
+		if uErr := a.UpdateCardLimitTimestamp(); uErr != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed after inserting a block",
+				mlog.Err(uErr),
+			)
+		}
+	}()
+
 	return err
+}
+
+func (a *App) isWithinViewsLimit(boardID string, block *model.Block) (bool, error) {
+	// ToDo: Cloud Limits have been disabled by design. We should
+	// revisit the decision and update the related code accordingly
+
+	/*
+		limits, err := a.GetBoardsCloudLimits()
+		if err != nil {
+			return false, err
+		}
+
+		if limits.Views == model.LimitUnlimited {
+			return true, nil
+		}
+
+		views, err := a.store.GetBlocksWithParentAndType(boardID, block.ParentID, model.TypeView)
+		if err != nil {
+			return false, err
+		}
+
+		// < rather than <= because we'll be creating new view if this
+		// check passes. When that view is created, the limit will be reached.
+		// That's why we need to check for if existing + the being-created
+		// view doesn't exceed the limit.
+		return len(views) < limits.Views, nil
+	*/
+
+	return true, nil
 }
 
 func (a *App) InsertBlocks(blocks []*model.Block, modifiedByID string) ([]*model.Block, error) {
@@ -180,6 +245,20 @@ func (a *App) InsertBlocksAndNotify(blocks []*model.Block, modifiedByID string, 
 
 	needsNotify := make([]*model.Block, 0, len(blocks))
 	for i := range blocks {
+		// this check is needed to whitelist inbuilt template
+		// initialization. They do contain more than 5 views per board.
+		if boardID != "0" && blocks[i].Type == model.TypeView {
+			withinLimit, err := a.isWithinViewsLimit(board.ID, blocks[i])
+			if err != nil {
+				return nil, err
+			}
+
+			if !withinLimit {
+				a.logger.Info("views limit reached on board", mlog.String("board_id", blocks[i].ParentID), mlog.String("team_id", board.TeamID))
+				return nil, model.ErrViewsLimitReached
+			}
+		}
+
 		err := a.store.InsertBlock(blocks[i], modifiedByID)
 		if err != nil {
 			return nil, err
@@ -201,7 +280,105 @@ func (a *App) InsertBlocksAndNotify(blocks []*model.Block, modifiedByID string, 
 		return nil
 	})
 
+	go func() {
+		if err := a.UpdateCardLimitTimestamp(); err != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed after inserting blocks",
+				mlog.Err(err),
+			)
+		}
+	}()
+
 	return blocks, nil
+}
+
+func (a *App) CopyCardFiles(sourceBoardID string, copiedBlocks []*model.Block) error {
+	// Images attached in cards have a path comprising the card's board ID.
+	// When we create a template from this board, we need to copy the files
+	// with the new board ID in path.
+	// Not doing so causing images in templates (and boards created from this
+	// template) to fail to load.
+
+	// look up ID of source sourceBoard, which may be different than the blocks.
+	sourceBoard, err := a.GetBoard(sourceBoardID)
+	if err != nil || sourceBoard == nil {
+		return fmt.Errorf("cannot fetch source board %s for CopyCardFiles: %w", sourceBoardID, err)
+	}
+
+	var destTeamID string
+	var destBoardID string
+
+	for i := range copiedBlocks {
+		block := copiedBlocks[i]
+		fileName := ""
+		isOk := false
+
+		switch block.Type {
+		case model.TypeImage:
+			fileName, isOk = block.Fields["fileId"].(string)
+			if !isOk || fileName == "" {
+				continue
+			}
+		case model.TypeAttachment:
+			fileName, isOk = block.Fields["attachmentId"].(string)
+			if !isOk || fileName == "" {
+				continue
+			}
+		default:
+			continue
+		}
+
+		// create unique filename in case we are copying cards within the same board.
+		ext := filepath.Ext(fileName)
+		destFilename := utils.NewID(utils.IDTypeNone) + ext
+
+		if destBoardID == "" || block.BoardID != destBoardID {
+			destBoardID = block.BoardID
+			destBoard, err := a.GetBoard(destBoardID)
+			if err != nil {
+				return fmt.Errorf("cannot fetch destination board %s for CopyCardFiles: %w", sourceBoardID, err)
+			}
+			destTeamID = destBoard.TeamID
+		}
+
+		sourceFilePath := filepath.Join(sourceBoard.TeamID, sourceBoard.ID, fileName)
+		destinationFilePath := filepath.Join(destTeamID, block.BoardID, destFilename)
+
+		a.logger.Debug(
+			"Copying card file",
+			mlog.String("sourceFilePath", sourceFilePath),
+			mlog.String("destinationFilePath", destinationFilePath),
+		)
+
+		if err := a.filesBackend.CopyFile(sourceFilePath, destinationFilePath); err != nil {
+			a.logger.Error(
+				"CopyCardFiles failed to copy file",
+				mlog.String("sourceFilePath", sourceFilePath),
+				mlog.String("destinationFilePath", destinationFilePath),
+				mlog.Err(err),
+			)
+		}
+		if block.Type == model.TypeAttachment {
+			block.Fields["attachmentId"] = destFilename
+			parts := strings.Split(fileName, ".")
+			fileInfoID := parts[0][1:]
+			fileInfo, err := a.store.GetFileInfo(fileInfoID)
+			if err != nil {
+				return fmt.Errorf("CopyCardFiles: cannot retrieve original fileinfo: %w", err)
+			}
+			newParts := strings.Split(destFilename, ".")
+			newFileID := newParts[0][1:]
+			fileInfo.Id = newFileID
+			err = a.store.SaveFileInfo(fileInfo)
+			if err != nil {
+				return fmt.Errorf("CopyCardFiles: cannot create fileinfo: %w", err)
+			}
+		} else {
+			block.Fields["fileId"] = destFilename
+		}
+	}
+
+	return nil
 }
 
 func (a *App) GetBlockByID(blockID string) (*model.Block, error) {
@@ -241,6 +418,15 @@ func (a *App) DeleteBlockAndNotify(blockID string, modifiedBy string, disableNot
 		}
 		return nil
 	})
+
+	go func() {
+		if err := a.UpdateCardLimitTimestamp(); err != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed after deleting a block",
+				mlog.Err(err),
+			)
+		}
+	}()
 
 	return nil
 }
@@ -294,6 +480,15 @@ func (a *App) UndeleteBlock(blockID string, modifiedBy string) (*model.Block, er
 
 		return nil
 	})
+
+	go func() {
+		if err := a.UpdateCardLimitTimestamp(); err != nil {
+			a.logger.Error(
+				"UpdateCardLimitTimestamp failed after undeleting a block",
+				mlog.Err(err),
+			)
+		}
+	}()
 
 	return block, nil
 }

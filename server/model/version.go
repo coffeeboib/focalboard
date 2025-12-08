@@ -1,17 +1,19 @@
 package model
 
 import (
-	"github.com/mattermost/mattermost/server/public/shared/mlog"
+	"github.com/mattermost/mattermost-server/v6/shared/mlog"
 )
 
 // This is a list of all the current versions including any patches.
 // It should be maintained in chronological order with most current
 // release at the front of the list.
 var versions = []string{
-	"8.0.0",
-	"7.12.0",
-	"7.11.1",
-	"7.11.0",
+	"7.10.6",
+	"7.10.5",
+	"7.10.4",
+	"7.10.3",
+	"7.10.2",
+	"7.10.1",
 	"7.10.0",
 	"7.9.0",
 	"7.8.0",

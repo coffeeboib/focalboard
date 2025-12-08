@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	mmModel "github.com/mattermost/mattermost/server/public/model"
+	mmModel "github.com/mattermost/mattermost-server/v6/model"
 )
 
 type PluginAdapterClient struct {

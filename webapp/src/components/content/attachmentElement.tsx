@@ -50,7 +50,7 @@ const AttachmentElement = (props: Props): JSX.Element|null => {
                 })
                 return
             }
-            const attachmentInfo = await octoClient.getFileInfo(block.boardId, block.fields.fileId)
+            const attachmentInfo = await octoClient.getFileInfo(block.boardId, block.fields.attachmentId)
             setFileInfo(attachmentInfo)
         }
         loadFile()
@@ -113,7 +113,7 @@ const AttachmentElement = (props: Props): JSX.Element|null => {
     }
 
     const attachmentDownloadHandler = async () => {
-        const attachment = await octoClient.getFileAsDataUrl(block.boardId, block.fields.fileId)
+        const attachment = await octoClient.getFileAsDataUrl(block.boardId, block.fields.attachmentId)
         const anchor = document.createElement('a')
         anchor.href = attachment.url || ''
         anchor.download = fileInfo.name || ''

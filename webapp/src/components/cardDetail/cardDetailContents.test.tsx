@@ -73,7 +73,9 @@ describe('components/cardDetail/cardDetailContents', () => {
             current: card.id,
         },
         clientConfig: {
-            value: {},
+            value: {
+                featureFlags: {},
+            },
         },
     }
     const store = mockStateStore([], state)
